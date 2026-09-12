@@ -14,14 +14,18 @@ export async function GET() {
   let database: "up" | "down" = "down";
   let dbError: string | undefined;
 
+  let dbErrorCode: string | undefined;
   try {
     // Cheapest possible round-trip to confirm the connection + that the schema
     // was pushed (an empty DB still answers SELECT 1).
     await prisma.$queryRaw`SELECT 1`;
     database = "up";
   } catch (err) {
-    dbError =
-      err instanceof Error ? err.message.split("\n")[0].slice(0, 200) : "unknown error";
+    const e = err as { message?: string; code?: string; errorCode?: string };
+    // Collapse whitespace so the (often multi-line) Prisma message is readable.
+    const raw = e?.message ?? String(err);
+    dbError = raw.replace(/\s+/g, " ").trim().slice(0, 300) || "unknown error";
+    dbErrorCode = e?.code ?? e?.errorCode;
   }
 
   // Config warnings (booleans/flags only — no secret values are exposed).
@@ -31,6 +35,7 @@ export async function GET() {
     status: database === "up" ? "ok" : "degraded",
     database,
     ...(dbError ? { dbError } : {}),
+    ...(dbErrorCode ? { dbErrorCode } : {}),
     ai: {
       provider: env.ai.provider,
       configured: env.ai.provider !== "disabled",

@@ -33,15 +33,51 @@ export async function runAnalyzers(
 }
 
 /**
- * Enriches a context with Lighthouse + axe measurements (both non-fatal).
- * Dynamically imported so the heavy dependency trees stay out of route bundles.
+ * Runs a promise with a hard timeout. If it doesn't settle in time, resolves to
+ * `fallback` so a hung external tool (e.g. Lighthouse spawning Chrome in a
+ * container) can never stall the whole pipeline.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
+
+/**
+ * Enriches a context with Lighthouse + axe measurements (both non-fatal and
+ * bounded by a hard timeout). Dynamically imported so the heavy dependency
+ * trees stay out of route bundles.
  */
 export async function enrichContext(ctx: AnalysisContext): Promise<AnalysisContext> {
-  ctx.lighthouse = await import("@/lib/crawler/lighthouse")
-    .then((m) => m.runLighthouse(ctx.rootUrl))
-    .catch(() => undefined);
-  ctx.axe = await import("@/lib/crawler/axe")
-    .then((m) => m.runAxe(ctx.rootUrl))
-    .catch(() => undefined);
+  // Generous ceilings: these tools drive a headless browser. If they hang
+  // (e.g. no system Chrome in a container), we degrade to "unavailable" rather
+  // than stalling the audit forever.
+  const LIGHTHOUSE_TIMEOUT_MS = 90_000;
+  const AXE_TIMEOUT_MS = 60_000;
+
+  ctx.lighthouse = await withTimeout(
+    import("@/lib/crawler/lighthouse")
+      .then((m) => m.runLighthouse(ctx.rootUrl))
+      .catch(() => undefined),
+    LIGHTHOUSE_TIMEOUT_MS,
+    undefined,
+  );
+  ctx.axe = await withTimeout(
+    import("@/lib/crawler/axe")
+      .then((m) => m.runAxe(ctx.rootUrl))
+      .catch(() => undefined),
+    AXE_TIMEOUT_MS,
+    undefined,
+  );
   return ctx;
 }

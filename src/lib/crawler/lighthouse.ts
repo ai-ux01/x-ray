@@ -71,8 +71,25 @@ export async function runLighthouse(rawUrl: string): Promise<LighthouseMetrics> 
     const lighthouseMod = await import("lighthouse");
     const lighthouse = lighthouseMod.default;
 
+    // In containers there is no system Chrome — only Playwright's bundled
+    // Chromium. chrome-launcher would otherwise search the system PATH and hang
+    // (never resolving) when nothing is found. Point it at Playwright's binary.
+    let chromePath: string | undefined;
+    try {
+      const { chromium } = await import("playwright");
+      chromePath = chromium.executablePath();
+    } catch {
+      chromePath = process.env.CHROME_PATH || undefined;
+    }
+
     chrome = await chromeLauncher.launch({
-      chromeFlags: ["--headless=new", "--no-sandbox", "--disable-gpu"],
+      chromePath,
+      chromeFlags: [
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+      ],
     });
 
     const runnerResult = await lighthouse(
