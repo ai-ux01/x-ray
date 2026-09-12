@@ -15,7 +15,15 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: standard # audits launch Chromium + Lighthouse; needs real memory/CPU
+    # Health check hits "/" (only needs the app to boot). Use /api/health as a
+    # manual diagnostic for DB connectivity + config — it returns 503 when the
+    # DB is down, so it's intentionally NOT the deploy health check (that would
+    # roll back the whole service on a DB blip).
     healthCheckPath: /
+    # The container's start command runs `prisma db push` before starting the
+    # web server (see Dockerfile / package.json start:prod), so the schema is
+    # created automatically on first boot — no shell or pre-deploy hook needed
+    # (both are unavailable on the free tier).
     # Persistent disk so screenshots/PDFs survive restarts and are served by
     # the same instance that wrote them. ARTIFACT_DIR points storage here.
     disk:

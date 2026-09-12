@@ -30,6 +30,8 @@ RUN npm run build
 ENV NODE_ENV=production
 EXPOSE 3000
 
-# Default command runs the web server. To run a dedicated worker instead,
-# override with: npm run worker
-CMD ["npm", "run", "start"]
+# Default command: ensure the DB schema exists (idempotent) then start the web
+# server. Running `prisma db push` at startup means a fresh managed database
+# gets its tables without any shell access (needed on hosts/tiers without a
+# shell). To run a dedicated worker instead, override with: npm run worker
+CMD ["npm", "run", "start:prod"]
