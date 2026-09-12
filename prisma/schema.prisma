@@ -2,7 +2,10 @@
 // Full data model for the auditing platform.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Explicit targets so `prisma generate` in the Linux container image doesn't
+  // depend on runtime OpenSSL detection. "native" keeps local dev working.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

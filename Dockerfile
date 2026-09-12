@@ -9,21 +9,25 @@
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 WORKDIR /app
-ENV NODE_ENV=production
-# Prisma reads DATABASE_URL at runtime; the browser is already installed.
+# The browser is already in the base image — don't re-download it.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# Install dependencies first (better layer caching).
+# Install ALL dependencies (including devDependencies) so the build tools
+# (next, typescript, tailwind, prisma) are available. NODE_ENV is intentionally
+# NOT set to production here, or `npm ci` would omit devDependencies and the
+# build would fail.
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # Copy the rest of the source and build.
 COPY . .
-# `build` runs `prisma generate` against schema.prisma (PostgreSQL) then next build.
+# `build` runs `prisma generate` (schema.prisma / PostgreSQL) then `next build`.
 RUN npm run build
 
+# Now switch to production for the runtime.
+ENV NODE_ENV=production
 EXPOSE 3000
 
-# Default command runs the web server. The worker service overrides this
-# (see render.yaml) with: npm run worker
+# Default command runs the web server. To run a dedicated worker instead,
+# override with: npm run worker
 CMD ["npm", "run", "start"]
