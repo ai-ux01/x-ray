@@ -1,0 +1,397 @@
+// WebsiteX-Ray — Prisma schema
+// Full data model for the auditing platform.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  AGENCY
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AuditStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// High-level pipeline stages, surfaced to the live-progress UI.
+enum AuditStage {
+  CREATED
+  CRAWLING
+  BROWSER_ANALYSIS
+  PERFORMANCE
+  SEO
+  ACCESSIBILITY
+  UX
+  CONTENT
+  CONVERSION
+  AI_ANALYSIS
+  SCORING
+  REPORT
+  DONE
+}
+
+enum ScoreCategory {
+  PERFORMANCE
+  SEO
+  ACCESSIBILITY
+  UX
+  MOBILE
+  CONTENT
+  CONVERSION
+  TECHNICAL
+  SECURITY
+  AI_READINESS
+  OVERALL
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Impact {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Effort {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+// Distinguishes measured data from AI opinion (a core product principle).
+enum FindingSource {
+  MEASURED
+  AI
+}
+
+enum UsageKind {
+  AUDIT
+  AI_TOKENS
+  API_CALL
+}
+
+// ---------------------------------------------------------------------------
+// Core models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  role          UserRole @default(USER)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscription  Subscription?
+  websites      Website[]
+  audits        Audit[]
+  usage         Usage[]
+  competitors   Competitor[]
+
+  @@index([email])
+}
+
+model Subscription {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan               Plan     @default(FREE)
+  auditsPerMonth     Int      @default(1)
+  whiteLabelEnabled  Boolean  @default(false)
+  clientMgmtEnabled  Boolean  @default(false)
+  currentPeriodStart DateTime @default(now())
+  currentPeriodEnd   DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Website {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  url        String
+  host       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  audits     Audit[]
+
+  @@index([host])
+  @@index([userId])
+}
+
+model Audit {
+  id           String      @id @default(cuid())
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  websiteId    String
+  website      Website     @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  url          String
+  status       AuditStatus @default(QUEUED)
+  stage        AuditStage  @default(CREATED)
+  progress     Int         @default(0) // 0..100
+
+  overallScore Int? // 0..100
+
+  // User-friendly error, never raw stack traces.
+  errorMessage String?
+
+  // Non-sensitive engine metadata (timings, page count, etc.)
+  meta         Json?
+
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  pages           AuditPage[]
+  issues          AuditIssue[]
+  scores          AuditScore[]
+  recommendations Recommendation[]
+  aiAnalyses      AIAnalysis[]
+  report          Report?
+  competitorLinks CompetitorComparison[]
+  visualMarkers   AuditVisualMarker[]
+
+  @@index([status])
+  @@index([websiteId])
+  @@index([userId])
+}
+
+model AuditPage {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  url           String
+  path          String
+  httpStatus    Int?
+  title         String?
+  metaDesc      String?
+
+  // Per-page category scores (0..100). Null until computed.
+  scorePerf     Int?
+  scoreSeo      Int?
+  scoreA11y     Int?
+  scoreUx       Int?
+
+  // Screenshot references (object storage keys / paths), not raw blobs.
+  desktopShot   String?
+  mobileShot    String?
+  // Full per-viewport screenshot map (viewportKey -> storage key).
+  screenshots   Json?
+
+  // Structured non-sensitive extracted data (headings, links, images...).
+  extracted     Json?
+
+  createdAt     DateTime @default(now())
+
+  issues        AuditIssue[]
+  visualMarkers AuditVisualMarker[]
+
+  @@index([auditId])
+}
+
+model AuditVisualMarker {
+  id        String        @id @default(cuid())
+  auditId   String
+  audit     Audit         @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  pageId    String?
+  page      AuditPage?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  viewport  String // "mobile" | "desktop" | ...
+  index     Int // 1-based marker number shown in the overlay
+  relX      Float // 0..1
+  relY      Float // 0..1
+  relW      Float?
+  relH      Float?
+
+  label     String
+  category  ScoreCategory
+  severity  Severity
+  source    FindingSource @default(MEASURED)
+
+  createdAt DateTime      @default(now())
+
+  @@index([auditId])
+  @@index([auditId, viewport])
+}
+
+model AuditIssue {
+  id             String        @id @default(cuid())
+  auditId        String
+  audit          Audit         @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  pageId         String?
+  page           AuditPage?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  category       ScoreCategory
+  severity       Severity
+  source         FindingSource @default(MEASURED)
+
+  title          String
+  problem        String
+  whyItMatters   String
+  recommendation String
+  evidence       Json? // measured proof (counts, urls, values)
+
+  impact         Impact        @default(MEDIUM)
+  effort         Effort        @default(MEDIUM)
+
+  createdAt      DateTime      @default(now())
+
+  @@index([auditId])
+  @@index([category])
+  @@index([severity])
+}
+
+model AuditScore {
+  id        String        @id @default(cuid())
+  auditId   String
+  audit     Audit         @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  category  ScoreCategory
+  score     Int // 0..100
+  // Every score must have an explanation (product principle).
+  summary   String
+  details   Json?
+
+  createdAt DateTime      @default(now())
+
+  @@unique([auditId, category])
+  @@index([auditId])
+}
+
+model Recommendation {
+  id           String        @id @default(cuid())
+  auditId      String
+  audit        Audit         @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  category     ScoreCategory
+  source       FindingSource @default(AI)
+
+  title        String
+  problem      String
+  evidence     String
+  recommendation String
+  impact       Impact
+  effort       Effort
+  priority     Severity
+
+  // Optional before/after content rewrite.
+  beforeText   String?
+  afterText    String?
+  rationale    String?
+
+  // Roadmap bucket: TODAY | WEEK | MONTH
+  roadmap      String?
+
+  createdAt    DateTime      @default(now())
+
+  @@index([auditId])
+  @@index([priority])
+}
+
+model AIAnalysis {
+  id         String   @id @default(cuid())
+  auditId    String
+  audit      Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  provider   String // "ollama" | "openai" | ...
+  model      String
+  kind       String // "category" | "consultant" | "competitor" | "action_plan"
+  // Stored AI output only. Internal prompts are NEVER persisted for reports.
+  output     Json
+  promptTokens Int?
+  completionTokens Int?
+
+  createdAt  DateTime @default(now())
+
+  @@index([auditId])
+}
+
+model Report {
+  id            String   @id @default(cuid())
+  auditId       String   @unique
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  // White-label branding
+  whiteLabel    Boolean  @default(false)
+  agencyName    String?
+  agencyLogo    String?
+  agencyWebsite String?
+  agencyContact String?
+  customCta     String?
+
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Competitor {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  url         String
+  host        String
+  createdAt   DateTime @default(now())
+
+  comparisons CompetitorComparison[]
+
+  @@index([host])
+}
+
+model CompetitorComparison {
+  id           String     @id @default(cuid())
+  auditId      String
+  audit        Audit      @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  // Category scores captured for the competitor for side-by-side comparison.
+  scores       Json
+  createdAt    DateTime   @default(now())
+
+  @@unique([auditId, competitorId])
+  @@index([auditId])
+}
+
+model Usage {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      UsageKind
+  amount    Int       @default(1)
+  meta      Json?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([kind])
+  @@index([createdAt])
+}
