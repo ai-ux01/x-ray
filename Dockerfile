@@ -21,7 +21,9 @@ RUN npm ci
 
 # Copy the rest of the source and build.
 COPY . .
-# `build` runs `prisma generate` (schema.prisma / PostgreSQL) then `next build`.
+# Fail loudly if the CSS toolchain didn't install (helps diagnose PostCSS
+# require errors), then build. `build` = prisma generate + next build.
+RUN node -e "require.resolve('tailwindcss'); require.resolve('autoprefixer'); require.resolve('postcss'); console.log('css toolchain OK')"
 RUN npm run build
 
 # Now switch to production for the runtime.
