@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.turbo
+coverage
+playwright-report
+.screenshots
+.reports
+prisma/dev.db
+prisma/dev.db-journal
+prisma/schema.sqlite.prisma
+.env
+.env*.local
+*.log
+.DS_Store

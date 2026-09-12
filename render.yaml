@@ -1,0 +1,54 @@
+# Render Blueprint for WebsiteX-Ray.
+#
+# Topology: a single web service that also runs the audit pipeline in-process.
+# This keeps screenshots/PDFs (written to a local disk) on the same instance
+# that serves them via /api/screenshots and /api/audits/[id]/pdf — no shared
+# storage or cross-service filesystem needed. Because REDIS_URL is left unset,
+# the app uses its in-process queue and runs audits on the web instance.
+#
+# If you later need horizontal scale, split into web + worker services backed
+# by Redis and move screenshot/PDF storage to object storage (S3/R2).
+
+services:
+  - type: web
+    name: websitexray
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard # audits launch Chromium + Lighthouse; needs real memory/CPU
+    healthCheckPath: /
+    # Persistent disk so screenshots/PDFs survive restarts and are served by
+    # the same instance that wrote them. ARTIFACT_DIR points storage here.
+    disk:
+      name: audit-artifacts
+      mountPath: /app/.data
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ARTIFACT_DIR
+        value: /app/.data
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false # set to the service's public URL after first deploy
+      - key: DATABASE_URL
+        fromDatabase:
+          name: websitexray-db
+          property: connectionString
+      # AI is optional. Default disabled; set AI_PROVIDER + keys to enable.
+      - key: AI_PROVIDER
+        value: disabled
+      - key: OPENAI_API_KEY
+        sync: false # set as a secret in the Render dashboard if using OpenAI
+      # Crawler safety limits (keep private-IP access off in production).
+      - key: CRAWLER_ALLOW_PRIVATE_IPS
+        value: "false"
+      - key: CRAWLER_MAX_PAGES
+        value: "10"
+      - key: CRAWLER_MAX_DEPTH
+        value: "2"
+      - key: CRAWLER_REQUEST_TIMEOUT_MS
+        value: "15000"
+
+databases:
+  - name: websitexray-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"

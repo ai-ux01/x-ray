@@ -7,7 +7,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-const ROOT = path.join(process.cwd(), ".screenshots");
+// Storage root is configurable via ARTIFACT_DIR so a container host can point
+// it at a persistent disk. Defaults to a local dir for zero-config dev.
+const ROOT = process.env.ARTIFACT_DIR
+  ? path.join(process.env.ARTIFACT_DIR, "screenshots")
+  : path.join(process.cwd(), ".screenshots");
 
 export async function saveScreenshot(key: string, data: Buffer): Promise<string> {
   await fs.mkdir(ROOT, { recursive: true });

@@ -117,16 +117,41 @@ npm run worker
 11. ✅ Agency / white-label mode
 12. ⏸️ Billing (deferred — needs a payment provider + auth)
 
-## Production checklist
+## Deployment
 
-- Set `DATABASE_URL` to a managed PostgreSQL instance and run `npm run db:push`
-  (or `npm run db:migrate` for migration history).
-- Set `REDIS_URL` and run the dedicated worker (`npm run worker`) so audits are
-  durable and the web tier never blocks. Without Redis the queue is in-memory
-  and single-instance (dev only).
-- Set `NEXT_PUBLIC_APP_URL` to the public URL and keep
-  `CRAWLER_ALLOW_PRIVATE_IPS=false`.
-- Install the browser once on the host: `npx playwright install --with-deps chromium`.
-- `npm run build && npm run start`. `validateEnv()` (run by the worker on start)
-  reports missing/weak production config.
+The audit engine launches headless Chromium (Playwright) and runs Lighthouse,
+so it needs a **container / persistent-process host** — not serverless (Vercel
+functions can't run the browser or the long crawl). Render, Fly, Railway, or a
+VM all work. A `Dockerfile` and `render.yaml` blueprint are included.
+
+### Render (recommended)
+
+1. Push the repo and create a Blueprint from `render.yaml`. It provisions a
+   PostgreSQL database and a Dockerized web service with a persistent disk.
+2. The disk is mounted at `/app/.data` and `ARTIFACT_DIR` points screenshot +
+   PDF storage there, so artifacts persist and are served by the same instance.
+3. After the first deploy, set `NEXT_PUBLIC_APP_URL` to the service URL.
+4. Run the schema once against the managed database: `npm run db:push`
+   (or `npm run db:migrate` for migration history).
+
+This single-service topology runs audits **in-process** (no Redis needed):
+screenshots are written and served by the same instance. For horizontal scale,
+split into web + worker services backed by `REDIS_URL` and move artifacts to
+object storage (the storage modules are isolated for this).
+
+### Configuration checklist
+
+- `DATABASE_URL` — managed PostgreSQL (wired automatically by the blueprint).
+- `NEXT_PUBLIC_APP_URL` — the public URL.
+- `ARTIFACT_DIR` — a persistent path for screenshots/PDFs (the disk mount).
+- `CRAWLER_ALLOW_PRIVATE_IPS=false` — keep SSRF protection on.
+- AI is optional: leave `AI_PROVIDER=disabled`, or set `AI_PROVIDER=openai` +
+  `OPENAI_API_KEY` (as a dashboard secret), or `AI_PROVIDER=ollama` with a
+  reachable Ollama host. AI failures never break an audit.
+
+### Building the image
+
+The `Dockerfile` uses the official Playwright base image (Chromium + system
+deps preinstalled, matching the Playwright version in `package.json`), runs
+`npm run build`, and starts `next start`.
 # x-ray
